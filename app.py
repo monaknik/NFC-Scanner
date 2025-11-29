@@ -1,208 +1,147 @@
 import streamlit as st
-import streamlit.components.v1 as components
 
-st.set_page_config(page_title="NFC Project", page_icon="📱")
+st.set_page_config(page_title="NFC Scanner Project", page_icon="📱")
 
-st.title("📱 Integrasi NFC & Streamlit")
-st.write("Menggunakan logika JavaScript untuk membaca serial number kartu.")
+st.title("📱 NFC Scanner (Direct Injection)")
+st.write("Versi ini berjalan langsung di DOM browser untuk menghindari blokir Iframe.")
 
-# --- KODE JAVASCRIPT & HTML (Adaptasi dari kode Magangmu) ---
-# Saya menerjemahkan 'this.f().doScan()' menjadi function biasa
-# dan 'this.form.get("rfidno")' menjadi manipulasi elemen ID.
-
+# --- KODE JAVASCRIPT & HTML ---
+# Perhatikan: Kita tidak pakai 'components.html', tapi string biasa
 html_code = """
-<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        body { font-family: sans-serif; padding: 10px; }
-        
-        /* Gaya Tombol meniru style Streamlit */
-        .btn {
-            display: inline-block;
-            padding: 10px 20px;
-            margin: 5px;
-            font-size: 16px;
-            cursor: pointer;
-            text-align: center;
-            text-decoration: none;
-            outline: none;
-            color: #fff;
-            border: none;
-            border-radius: 5px;
-            box-shadow: 0 2px #999;
+<style>
+    .nfc-container {
+        font-family: sans-serif; 
+        padding: 20px; 
+        border: 2px dashed #0083B8; 
+        border-radius: 10px;
+        text-align: center;
+        margin-top: 20px;
+        background-color: #f0f8ff;
+    }
+    .btn {
+        background-color: #0083B8; 
+        color: white; 
+        padding: 15px 32px; 
+        border: none; 
+        border-radius: 8px; 
+        cursor: pointer;
+        font-size: 18px;
+        font-weight: bold;
+        margin: 10px;
+        transition: 0.3s;
+    }
+    .btn:active { transform: scale(0.95); }
+    .btn-abort { background-color: #ff4b4b; display: none; }
+    
+    #status_text { font-size: 1.2em; color: #333; margin-bottom: 10px; }
+    #rfid_result { 
+        font-size: 2em; 
+        font-weight: bold; 
+        color: #0083B8; 
+        margin: 20px 0; 
+        word-break: break-all;
+    }
+    #debug_log { font-size: 0.8em; color: red; margin-top: 20px; text-align: left; }
+</style>
+
+<div class="nfc-container">
+    <div id="status_text">Siap Scan...</div>
+    
+    <button id="btnScan" class="btn" onclick="startNFCScan()">📡 MULAI SCAN</button>
+    <button id="btnAbort" class="btn btn-abort" onclick="stopNFCScan()">🛑 STOP</button>
+
+    <div>ID KARTU:</div>
+    <div id="rfid_result">-</div>
+    
+    <div id="debug_log"></div>
+</div>
+
+<script>
+    // Kita gunakan var agar variabel global bisa diakses ulang
+    var ndef = null;
+    var abortController = null;
+    var isScanning = false;
+
+    function debug(msg) {
+        console.log(msg);
+        // Tampilkan pesan error ke layar user agar kamu tahu kenapa gagal
+        const logArea = document.getElementById('debug_log');
+        if (logArea) logArea.innerHTML += ">> " + msg + "<br>";
+    }
+
+    async function startNFCScan() {
+        const btnScan = document.getElementById('btnScan');
+        const btnAbort = document.getElementById('btnAbort');
+        const statusText = document.getElementById('status_text');
+        const resultText = document.getElementById('rfid_result');
+        const logArea = document.getElementById('debug_log');
+
+        // Bersihkan log lama
+        logArea.innerHTML = ""; 
+
+        // 1. Cek Fitur Browser
+        if (!("NDEFReader" in window)) {
+            statusText.innerText = "❌ Browser Tidak Support";
+            alert("Fitur NFC tidak ada di browser ini. Wajib pakai Chrome di Android.");
+            return;
         }
 
-        .btn-scan { background-color: #0083B8; } /* Biru */
-        .btn-abort { background-color: #ff4b4b; display: none; } /* Merah */
-        .btn-save { background-color: #28a745; margin-top: 20px;} /* Hijau */
-        
-        .btn:active { transform: translateY(4px); }
+        // Update UI
+        btnScan.style.display = "none";
+        btnAbort.style.display = "inline-block";
+        statusText.innerText = "Tempelkan Kartu Sekarang...";
+        resultText.innerText = "-";
 
-        .input-group { margin-top: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; color: #333;}
-        input { 
-            width: 95%; 
-            padding: 8px; 
-            border: 1px solid #ccc; 
-            border-radius: 4px;
-            font-size: 16px;
-        }
-        input[readonly] { background-color: #e9ecef; }
-        
-        #log_area { 
-            margin-top: 20px; 
-            color: red; 
-            font-size: 12px; 
-            font-family: monospace; 
-        }
-    </style>
-</head>
-<body>
+        try {
+            // Inisialisasi
+            ndef = new NDEFReader();
+            abortController = new AbortController();
 
-    <div>
-        <button id="btnScan" class="btn btn-scan" onclick="doScan()">Scan NFC</button>
-        <button id="btnAbort" class="btn btn-abort" onclick="doAbort()">Abort Scan</button>
-    </div>
+            // 2. REQUEST IZIN (Ini yang biasanya gagal di Iframe)
+            await ndef.scan({ signal: abortController.signal });
 
-    <div class="input-group">
-        <label>RFID Number</label>
-        <input type="text" id="rfidno" placeholder="Hasil scan muncul di sini..." readonly>
-    </div>
+            debug("NFC Aktif! Menunggu kartu...");
 
-    <div class="input-group">
-        <label>Nama Lokasi</label>
-        <input type="text" id="namalokasi" placeholder="Masukkan nama lokasi">
-    </div>
-
-    <div class="input-group">
-        <button class="btn btn-save" onclick="btnSaveClicked()">Simpan Data</button>
-    </div>
-
-    <div id="log_area"></div>
-
-    <script>
-        // Variabel Global (pengganti 'this')
-        let ndef = null;
-        let abortController = null;
-        let isScanning = false;
-
-        // Fungsi Helper untuk Log
-        function log(msg) {
-            console.log(msg);
-            // Opsional: Tampilkan error di layar jika user bingung
-            if(msg.includes("Error") || msg.includes("Gagal")) {
-                document.getElementById('log_area').innerHTML = msg;
-            }
-        }
-
-        // --- FUNGSI UTAMA (Dari kode kamu) ---
-
-        // 1. Cek Support
-        function checkIfNFCSupported() {
-            if (!('NDEFReader' in window)) {
-                alert('Perangkat/Browser ini tidak mendukung NFC Web.');
-                log('Error: NFC tidak didukung di perangkat ini!');
-                return false;
-            }
-            return true;
-        }
-
-        // 2. Fungsi Scan
-        async function doScan() {
-            log('Memulai scan NFC...');
-            
-            if (!checkIfNFCSupported()) return;
-            
-            if (isScanning) {
-                console.warn("Scan NFC masih berjalan!");
-                return;
-            }
-
-            // Reset UI
-            doAbort(); 
-            isScanning = true;
-            document.getElementById('btnScan').style.display = 'none';
-            document.getElementById('btnAbort').style.display = 'inline-block';
-            document.getElementById('log_area').innerHTML = "Menunggu Kartu...";
-
-            try {
-                ndef = new NDEFReader();
-                abortController = new AbortController();
-
-                // INI MOMEN REQUEST IZIN POP-UP
-                await ndef.scan({ signal: abortController.signal });
+            ndef.onreading = event => {
+                const serialNumber = event.serialNumber;
+                resultText.innerText = serialNumber;
+                statusText.innerText = "✅ Berhasil Membaca!";
+                debug("Ditemukan ID: " + serialNumber);
                 
-                log('Scan NFC telah dimulai...');
+                // Getar HP
+                if (navigator.vibrate) navigator.vibrate(200);
+            };
 
-                ndef.onreadingerror = () => {
-                    alert('Tidak dapat membaca data dari NFC Tag. Coba tempel ulang.');
-                    console.error('Error membaca NFC Tag');
-                };
+            ndef.onreadingerror = () => {
+                debug("Gagal baca chip. Geser posisi kartu.");
+            };
 
-                ndef.onreading = (event) => {
-                    console.log("Tag NFC Terbaca:", event);
-                    
-                    if (event.serialNumber) {
-                        console.log("Serial Number NFC:", event.serialNumber);
-                        
-                        // Masukkan data ke Input Form HTML (pengganti this.form.setValue)
-                        document.getElementById("rfidno").value = event.serialNumber;
-                        document.getElementById('log_area').innerHTML = "Sukses Baca!";
-                        
-                        // Efek Getar
-                        if (navigator.vibrate) navigator.vibrate(200);
-
-                    } else {
-                        console.warn("Tag NFC tidak memiliki Serial Number!");
-                    }
-                    
-                    // Otomatis stop setelah baca 1 kartu (opsional)
-                    // isScanning = false;
-                    // doAbort();
-                };
-
-            } catch (error) {
-                console.error(`Kesalahan saat scan NFC: ${error}`);
-                log("Error: " + error.message);
-                alert("Gagal: " + error.message);
-                doAbort();
-            }
-        }
-
-        // 3. Fungsi Abort
-        function doAbort() {
-            console.log('Menghentikan semua proses scan NFC...');
-            if (abortController) {
-                abortController.abort();
-                abortController = null;
-            }
-            isScanning = false;
+        } catch (error) {
+            statusText.innerText = "❌ Gagal: " + error.name;
+            debug("Error Name: " + error.name);
+            debug("Error Msg: " + error.message);
             
-            // Kembalikan Tombol
-            document.getElementById('btnScan').style.display = 'inline-block';
-            document.getElementById('btnAbort').style.display = 'none';
+            // Tampilkan Alert agar jelas
+            alert("SCAN GAGAL! " + error.name + "\\n" + error.message);
+            
+            stopNFCScan();
         }
+    }
 
-        // 4. Fungsi Simpan (Simulasi)
-        function btnSaveClicked() {
-            let rfid = document.getElementById("rfidno").value;
-            let lokasi = document.getElementById("namalokasi").value;
-
-            if(rfid === "") {
-                alert("Belum ada kartu yang discan!");
-                return;
-            }
-
-            alert("SIMPAN DATA:\nID: " + rfid + "\nLokasi: " + lokasi);
-            // Disini nanti logika kirim ke Python/Database
+    function stopNFCScan() {
+        if (abortController) {
+            abortController.abort();
+            abortController = null;
         }
-
-    </script>
-</body>
-</html>
+        document.getElementById('btnScan').style.display = "inline-block";
+        document.getElementById('btnAbort').style.display = "none";
+        document.getElementById('status_text').innerText = "Scan Dihentikan.";
+    }
+</script>
 """
 
-# Render kode HTML/JS tersebut ke dalam Streamlit
-# Height disesuaikan agar tombol terlihat semua
-components.html(html_code, height=450)
+# INI KUNCINYA: Pakai st.markdown dengan unsafe_allow_html=True
+# Ini menyuntikkan kode langsung ke halaman, bukan ke dalam iframe.
+st.markdown(html_code, unsafe_allow_html=True)
+
+st.info("Tips: Jika scan gagal, klik ikon 🔒 (Gembok) di sebelah URL browser HP kamu, pilih 'Permissions', dan pastikan NFC diizinkan atau klik 'Reset Permissions'.")
