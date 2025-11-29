@@ -3,51 +3,43 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="NFC Scanner Project", page_icon="📱")
 
-st.title("📱 NFC Scanner for Streamlit")
-st.write("Aplikasi ini menggunakan Web NFC API untuk membaca Serial Number kartu.")
+st.title("📱 NFC Scanner (Debug Mode)")
+st.write("Versi ini akan memunculkan pesan error jika scan gagal.")
 
-# --- CSS & JAVASCRIPT INJECTION ---
-# Kita membungkus logika JS kamu ke dalam string HTML
 nfc_component = """
 <!DOCTYPE html>
 <html>
 <head>
     <style>
-        body { font-family: sans-serif; padding: 10px; }
+        body { font-family: sans-serif; padding: 20px; text-align: center; }
         .btn {
-            background-color: #ff4b4b; 
+            background-color: #0083B8; 
             color: white; 
-            padding: 10px 20px; 
+            padding: 15px 30px; 
             border: none; 
-            border-radius: 5px; 
-            cursor: pointer;
-            font-size: 16px;
-            margin-right: 10px;
+            border-radius: 8px; 
+            font-size: 18px;
+            font-weight: bold;
+            width: 100%;
+            margin-bottom: 20px;
         }
-        .btn-scan { background-color: #0083B8; } /* Biru Streamlit */
-        .btn-abort { background-color: #ff4b4b; display: none; } /* Merah */
-        
-        .status-box {
-            margin-top: 20px;
-            padding: 15px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            background-color: #f9f9f9;
-        }
-        #rfid_result { font-weight: bold; color: #0083B8; font-size: 1.2em; }
-        #log_area { font-size: 0.9em; color: #666; margin-top: 10px; }
+        .btn-abort { background-color: #ff4b4b; display: none; }
+        .status { font-size: 1.2em; margin-bottom: 10px; color: #333; }
+        #rfid_result { font-size: 2em; font-weight: bold; color: #0083B8; word-break: break-all;}
+        .error-log { color: red; font-size: 0.9em; margin-top: 20px; text-align: left;}
     </style>
 </head>
 <body>
 
-    <button id="btnScan" class="btn btn-scan" onclick="startScan()">📡 Scan NFC</button>
-    <button id="btnAbort" class="btn btn-abort" onclick="stopScan()">🛑 Stop Scan</button>
+    <div class="status" id="status_text">Siap Scan...</div>
+    
+    <button id="btnScan" class="btn" onclick="startScan()">📡 MULAI SCAN</button>
+    <button id="btnAbort" class="btn btn-abort" onclick="stopScan()">🛑 BERHENTI</button>
 
-    <div class="status-box">
-        <p>Status: <span id="status_text">Siap...</span></p>
-        <p>RFID Serial Number: <br><span id="rfid_result">-</span></p>
-    </div>
-    <div id="log_area"></div>
+    <div>ID Kartu:</div>
+    <div id="rfid_result">-</div>
+    
+    <div class="error-log" id="log_area"></div>
 
     <script>
         let ndef = null;
@@ -56,87 +48,75 @@ nfc_component = """
 
         function log(msg) {
             console.log(msg);
-            document.getElementById('log_area').innerHTML = "Log: " + msg;
-        }
-
-        function updateStatus(msg) {
-            document.getElementById('status_text').innerText = msg;
+            // Tampilkan log di layar agar user bisa baca
+            document.getElementById('log_area').innerHTML += ">> " + msg + "<br>";
         }
 
         async function startScan() {
-            // 1. Cek Support Browser
+            // 1. Cek apakah Browser mendukung
             if (!('NDEFReader' in window)) {
-                alert('Browser ini tidak mendukung NFC! Pastikan pakai Chrome di Android & HTTPS.');
-                log('NFC not supported');
+                alert("ERROR: Browser ini tidak mendukung Web NFC. Pastikan pakai Chrome di Android.");
                 return;
             }
 
-            if (isScanning) {
-                log("Scan masih berjalan...");
-                return;
-            }
-
-            // UI Updates
             document.getElementById('btnScan').style.display = 'none';
             document.getElementById('btnAbort').style.display = 'inline-block';
-            updateStatus("Silakan tempelkan kartu NFC ke belakang HP...");
+            document.getElementById('status_text').innerText = "Tempelkan Kartu Sekarang...";
+            document.getElementById('log_area').innerHTML = ""; // Bersihkan log lama
 
             try {
-                isScanning = true;
                 ndef = new NDEFReader();
                 abortController = new AbortController();
 
-                // 2. Mulai Scanning
+                // 2. Request Scan
                 await ndef.scan({ signal: abortController.signal });
-                log("Scan started...");
+                
+                log("Sistem NFC Aktif. Menunggu kartu...");
 
                 ndef.onreadingerror = () => {
-                    log("Gagal membaca kartu. Coba posisikan ulang.");
+                    log("Gagal membaca chip. Coba geser posisi kartu.");
                 };
 
                 ndef.onreading = (event) => {
-                    log("Kartu Terdeteksi!");
+                    // BERHASIL BACA
+                    const serialNumber = event.serialNumber;
+                    document.getElementById('rfid_result').innerText = serialNumber;
+                    log("Kartu Ditemukan! ID: " + serialNumber);
                     
-                    if (event.serialNumber) {
-                        // Tampilkan Hasil di Layar
-                        document.getElementById('rfid_result').innerText = event.serialNumber;
-                        log("Serial Number: " + event.serialNumber);
-                        
-                        // Opsional: Bunyikan getar
-                        if (navigator.vibrate) navigator.vibrate(200);
-                        
-                        // Di sini kamu bisa kirim data ke Python nanti (via URL parameter atau library tambahan)
-                    } else {
-                        log("Kartu terbaca, tapi tidak ada Serial Number.");
-                    }
+                    // Feedback getar
+                    if (navigator.vibrate) navigator.vibrate(200);
                 };
 
             } catch (error) {
-                log("Error: " + error);
+                // TANGKAP ERROR DISINI
+                document.getElementById('status_text').innerText = "Gagal Mengakses NFC";
+                
+                // Munculkan ALERT agar user sadar
+                alert("SCAN GAGAL!\nPenyebab: " + error.name + "\nPesan: " + error.message);
+                
+                log("Error Name: " + error.name);
+                log("Error Msg: " + error.message);
+                
                 stopScan();
             }
         }
 
         function stopScan() {
-            log("Menghentikan scan...");
             if (abortController) {
                 abortController.abort();
                 abortController = null;
             }
-            ndef = null;
             isScanning = false;
-            
-            // Reset UI
             document.getElementById('btnScan').style.display = 'inline-block';
             document.getElementById('btnAbort').style.display = 'none';
-            updateStatus("Scan dihentikan.");
+            document.getElementById('status_text').innerText = "Scan Dihentikan.";
         }
     </script>
 </body>
 </html>
 """
 
-# Render komponen HTML ke dalam Streamlit
-components.html(nfc_component, height=400)
+components.html(nfc_component, height=500)
+
 
 st.info("Catatan: Web NFC API hanya berjalan di **Google Chrome Android** dan wajib menggunakan protokol **HTTPS** (atau Localhost).")
